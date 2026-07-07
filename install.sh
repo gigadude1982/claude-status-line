@@ -1,11 +1,11 @@
 #!/bin/bash
 # Install the Claude Code statusline on a new machine.
-# Run from the repo root: bash config/install.sh
+# Run from the repo root: bash install.sh
 #
 # What it does:
-#   1. Copies config/statusline.sh → ~/.claude/statusline.sh
+#   1. Copies statusline.sh → ~/.claude/statusline.sh
 #   2. Prints the statusLine block to add to ~/.claude/settings.json
-#      (uses the Git Bash path auto-detected on the current machine)
+#      (uses the Git Bash path auto-detected on Windows; plain path elsewhere)
 
 set -e
 
@@ -16,14 +16,18 @@ cp "$SCRIPT_DIR/statusline.sh" "$DEST"
 chmod +x "$DEST"
 echo "Installed: $DEST"
 
-# Detect Git Bash path on Windows (noop on Linux/Mac)
+# Detect Git Bash path on Windows only (Mac/Linux ship /usr/bin/bash too, so
+# that path can't be used as a Windows signal — gate on uname first).
 GIT_BASH=""
-for candidate in \
-    "/c/Program Files/Git/bin/bash.exe" \
-    "/c/Users/$USERNAME/AppData/Local/Programs/Git/bin/bash.exe" \
-    "/usr/bin/bash"; do
-  [ -x "$candidate" ] && GIT_BASH="$candidate" && break
-done
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*)
+    for candidate in \
+        "/c/Program Files/Git/bin/bash.exe" \
+        "/c/Users/$USERNAME/AppData/Local/Programs/Git/bin/bash.exe"; do
+      [ -x "$candidate" ] && GIT_BASH="$candidate" && break
+    done
+    ;;
+esac
 
 echo ""
 echo "Add the following to ~/.claude/settings.json:"

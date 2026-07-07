@@ -8,9 +8,11 @@ A Claude Code statusline script that shows model, context window usage, and rate
 
 **Line 1** — model, version, session, vim/agent mode, account, plan, working directory, git branch
 
-**Line 2** — context window progress bar with token breakdown (input, output, cache read/write, cumulative totals)
+**Line 2** — context window progress bar with token breakdown (input, output, cache read/write)
 
-**Line 3** — 5-hour and 7-day rate limit bars with reset countdowns
+**Line 3** — session cost, lines changed, and session duration
+
+**Line 4** — 5-hour and 7-day rate limit bars with reset countdowns
 
 ### Rate limit caching
 

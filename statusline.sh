@@ -4,7 +4,10 @@
 # between API calls — staleness is shown as "(cached Xm ago)".
 
 input=$(cat)
-CACHE_FILE="${TMPDIR:-/tmp}/.claude_rl_$(id -u 2>/dev/null || echo 0)"
+_CLAUDE_CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+# Scoped by uid AND config dir so cached rate-limit values never bleed across
+# accounts/profiles on machines that run more than one CLAUDE_CONFIG_DIR.
+CACHE_FILE="${TMPDIR:-/tmp}/.claude_rl_$(id -u 2>/dev/null || echo 0)_$(basename "$_CLAUDE_CFG")"
 
 # ── parse JSON ────────────────────────────────────────────────────────────────
 MODEL=$(echo "$input"     | jq -r '.model.display_name // "unknown"')
@@ -22,8 +25,11 @@ IN_TOK=$(echo "$input"    | jq -r '.context_window.current_usage.input_tokens //
 OUT_TOK=$(echo "$input"   | jq -r '.context_window.current_usage.output_tokens // empty')
 CACHE_W=$(echo "$input"   | jq -r '.context_window.current_usage.cache_creation_input_tokens // empty')
 CACHE_R=$(echo "$input"   | jq -r '.context_window.current_usage.cache_read_input_tokens // empty')
-TOT_IN=$(echo "$input"    | jq -r '.context_window.total_input_tokens // empty')
-TOT_OUT=$(echo "$input"   | jq -r '.context_window.total_output_tokens // empty')
+
+COST_USD=$(echo "$input"  | jq -r '.cost.total_cost_usd // empty')
+DUR_MS=$(echo "$input"    | jq -r '.cost.total_duration_ms // empty')
+LINES_ADD=$(echo "$input" | jq -r '.cost.total_lines_added // empty')
+LINES_DEL=$(echo "$input" | jq -r '.cost.total_lines_removed // empty')
 
 FIVE_HR=$(echo "$input"   | jq -r '.rate_limits.five_hour.used_percentage // empty')
 FIVE_RST=$(echo "$input"  | jq -r '.rate_limits.five_hour.resets_at // empty')
@@ -45,7 +51,6 @@ elif [ -f "$CACHE_FILE" ]; then
 fi
 
 # ── account / plan ────────────────────────────────────────────────────────────
-_CLAUDE_CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 ACCOUNT_EMAIL="" ACCOUNT_ORG="" PLAN_NAME=""
 
 for _cc in "$_CLAUDE_CFG/.claude.json" "$HOME/.claude.json"; do
@@ -96,6 +101,20 @@ fmt_k() {
   local n="${1:-}"
   [ -z "$n" ] || [ "$n" = "null" ] && echo "—" && return
   [ "$n" -ge 1000 ] 2>/dev/null && printf '%dk' $(( n / 1000 )) || printf '%d' "$n"
+}
+
+fmt_usd() {
+  local n="${1:-}"
+  [ -z "$n" ] || [ "$n" = "null" ] && echo "—" && return
+  printf '$%.2f' "$n" 2>/dev/null || echo "—"
+}
+
+fmt_dur() {
+  local ms="${1:-}"
+  [ -z "$ms" ] || [ "$ms" = "null" ] && echo "—" && return
+  local secs=$(( ms / 1000 ))
+  local h=$(( secs / 3600 )) m=$(( (secs % 3600) / 60 ))
+  [ "$h" -gt 0 ] && printf '%dh%dm' "$h" "$m" || printf '%dm' "$m"
 }
 
 fmt_reset() {
@@ -172,17 +191,25 @@ if [ -n "$USED_PCT" ]; then
     TOK_DETAIL="${TOK_DETAIL}${RESET}"
   fi
 
-  CUM_DETAIL=""
-  [ -n "$TOT_IN" ] && CUM_DETAIL=" ${DIM}∑in:$(fmt_k "$TOT_IN") ∑out:$(fmt_k "$TOT_OUT")${RESET}"
-
   CTX_K=$(fmt_k "$CTX_SIZE")
-  printf "%b %b${RESET} ${BAR_COLOR}${PCT}%%${RESET} ${DIM}rem:${REM}%%${RESET}${TOK_DETAIL}${CUM_DETAIL} ${DIM}ctx:${CTX_K}${RESET}\n" \
+  printf "%b %b${RESET} ${BAR_COLOR}${PCT}%%${RESET} ${DIM}rem:${REM}%%${RESET}${TOK_DETAIL} ${DIM}ctx:${CTX_K}${RESET}\n" \
     "${DIM}ctx${RESET}" "$BAR"
 else
   printf "${DIM}ctx: waiting for first message…${RESET}\n"
 fi
 
-# ── line 3: rate limits ───────────────────────────────────────────────────────
+# ── line: session cost / duration / lines changed ─────────────────────────────
+if [ -n "$COST_USD" ]; then
+  LINES_PART=""
+  if [ -n "$LINES_ADD" ] && [ -n "$LINES_DEL" ]; then
+    LINES_PART=" ${DIM}(${RESET}${GREEN}+${LINES_ADD}${RESET}${DIM}/${RESET}${RED}-${LINES_DEL}${RESET}${DIM})${RESET}"
+  fi
+  DUR_PART=""
+  [ -n "$DUR_MS" ] && DUR_PART=" ${DIM}·${RESET} ${DIM}session:${RESET}$(fmt_dur "$DUR_MS")"
+  printf "${DIM}cost${RESET} ${YELLOW}$(fmt_usd "$COST_USD")${RESET}${LINES_PART}${DUR_PART}\n"
+fi
+
+# ── line 4: rate limits ───────────────────────────────────────────────────────
 if [ -n "$FIVE_HR" ] || [ -n "$SEVEN_DAY" ]; then
   STALE_PART=""
   if [ "$RATE_FRESH" -eq 0 ] && [ -n "$CACHE_TS" ]; then
@@ -199,7 +226,7 @@ if [ -n "$FIVE_HR" ] || [ -n "$SEVEN_DAY" ]; then
     BAR5=$(make_bar "$P" "$RC")
     RST5=$(fmt_reset "$FIVE_RST")
     RST5_PART=""; [ -n "$RST5" ] && RST5_PART=" ${DIM}resets ${RST5}${RESET}"
-    RATE_LINE="${DIM}5h${RESET} ${BAR5}${RESET} ${RC}${P}%%${RESET}${RST5_PART}"
+    RATE_LINE="${DIM}5h${RESET} ${BAR5}${RESET} ${RC}${P}%${RESET}${RST5_PART}"
   fi
 
   if [ -n "$SEVEN_DAY" ] && [ "$SEVEN_DAY" != "null" ]; then
@@ -211,7 +238,7 @@ if [ -n "$FIVE_HR" ] || [ -n "$SEVEN_DAY" ]; then
     RST7=$(fmt_reset "$SEVEN_RST")
     RST7_PART=""; [ -n "$RST7" ] && RST7_PART=" ${DIM}resets ${RST7}${RESET}"
     [ -n "$RATE_LINE" ] && RATE_LINE="${RATE_LINE}  "
-    RATE_LINE="${RATE_LINE}${DIM}7d${RESET} ${BAR7}${RESET} ${RC}${P}%%${RESET}${RST7_PART}"
+    RATE_LINE="${RATE_LINE}${DIM}7d${RESET} ${BAR7}${RESET} ${RC}${P}%${RESET}${RST7_PART}"
   fi
 
   printf "%b%b\n" "$RATE_LINE" "$STALE_PART"
