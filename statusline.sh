@@ -183,16 +183,15 @@ if [ -n "$USED_PCT" ]; then
 
   TOK_DETAIL=""
   if [ -n "$IN_TOK" ]; then
-    TOK_DETAIL=" ${DIM}in:$(fmt_k "$IN_TOK") out:$(fmt_k "$OUT_TOK")"
+    TOK_DETAIL=" ${DIM}in:${RESET}$(fmt_k "$IN_TOK") ${DIM}out:${RESET}$(fmt_k "$OUT_TOK")"
     [ -n "$CACHE_R" ] && [ "$CACHE_R" -gt 0 ] 2>/dev/null \
-      && TOK_DETAIL="${TOK_DETAIL} cr:$(fmt_k "$CACHE_R")"
+      && TOK_DETAIL="${TOK_DETAIL} ${DIM}cr:${RESET}$(fmt_k "$CACHE_R")"
     [ -n "$CACHE_W" ] && [ "$CACHE_W" -gt 0 ] 2>/dev/null \
-      && TOK_DETAIL="${TOK_DETAIL} cw:$(fmt_k "$CACHE_W")"
-    TOK_DETAIL="${TOK_DETAIL}${RESET}"
+      && TOK_DETAIL="${TOK_DETAIL} ${DIM}cw:${RESET}$(fmt_k "$CACHE_W")"
   fi
 
   CTX_K=$(fmt_k "$CTX_SIZE")
-  printf "%b %b${RESET} ${BAR_COLOR}${PCT}%%${RESET} ${DIM}rem:${REM}%%${RESET}${TOK_DETAIL} ${DIM}ctx:${CTX_K}${RESET}\n" \
+  printf "%b %b${RESET} ${BAR_COLOR}${PCT}%%${RESET} ${DIM}rem:${RESET}${REM}%%${TOK_DETAIL} ${DIM}ctx:${RESET}${CTX_K}\n" \
     "${DIM}ctx${RESET}" "$BAR"
 else
   printf "${DIM}ctx: waiting for first message…${RESET}\n"
@@ -225,7 +224,7 @@ if [ -n "$FIVE_HR" ] || [ -n "$SEVEN_DAY" ]; then
     else RC="$GREEN"; fi
     BAR5=$(make_bar "$P" "$RC")
     RST5=$(fmt_reset "$FIVE_RST")
-    RST5_PART=""; [ -n "$RST5" ] && RST5_PART=" ${DIM}resets ${RST5}${RESET}"
+    RST5_PART=""; [ -n "$RST5" ] && RST5_PART=" ${DIM}resets${RESET} ${RST5}"
     RATE_LINE="${DIM}5h${RESET} ${BAR5}${RESET} ${RC}${P}%${RESET}${RST5_PART}"
   fi
 
@@ -236,7 +235,7 @@ if [ -n "$FIVE_HR" ] || [ -n "$SEVEN_DAY" ]; then
     else RC="$GREEN"; fi
     BAR7=$(make_bar "$P" "$RC")
     RST7=$(fmt_reset "$SEVEN_RST")
-    RST7_PART=""; [ -n "$RST7" ] && RST7_PART=" ${DIM}resets ${RST7}${RESET}"
+    RST7_PART=""; [ -n "$RST7" ] && RST7_PART=" ${DIM}resets${RESET} ${RST7}"
     [ -n "$RATE_LINE" ] && RATE_LINE="${RATE_LINE}  "
     RATE_LINE="${RATE_LINE}${DIM}7d${RESET} ${BAR7}${RESET} ${RC}${P}%${RESET}${RST7_PART}"
   fi
