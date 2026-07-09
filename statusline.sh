@@ -119,12 +119,22 @@ fmt_dur() {
 
 fmt_reset() {
   local epoch="${1:-}"
+  # Pass a non-empty second arg to prefix the date (e.g. weekly resets days out).
+  local with_date="${2:-}"
   [ -z "$epoch" ] || [ "$epoch" = "null" ] && return
   local now; now=$(date +%s)
   local diff=$(( epoch - now ))
   [ "$diff" -le 0 ] && echo "now" && return
   local h=$(( diff / 3600 )) m=$(( (diff % 3600) / 60 ))
-  [ "$h" -gt 0 ] && printf '%dh%dm' "$h" "$m" || printf '%dm' "$m"
+  # Absolute wall-clock time the limit resets at — BSD (macOS) vs GNU date.
+  local fmt='+%-I:%M%p'
+  [ -n "$with_date" ] && fmt='+%a %-m/%-d %-I:%M%p'
+  local clock
+  clock=$(date -r "$epoch" "$fmt" 2>/dev/null || date -d "@$epoch" "$fmt" 2>/dev/null)
+  clock=$(echo "$clock" | tr '[:upper:]' '[:lower:]')
+  local clock_part=""
+  [ -n "$clock" ] && clock_part=" (${clock})"
+  [ "$h" -gt 0 ] && printf '%dh%dm%s' "$h" "$m" "$clock_part" || printf '%dm%s' "$m" "$clock_part"
 }
 
 fmt_age() {
@@ -234,7 +244,7 @@ if [ -n "$FIVE_HR" ] || [ -n "$SEVEN_DAY" ]; then
     elif [ "$P" -ge 70 ]; then RC="$YELLOW"
     else RC="$GREEN"; fi
     BAR7=$(make_bar "$P" "$RC")
-    RST7=$(fmt_reset "$SEVEN_RST")
+    RST7=$(fmt_reset "$SEVEN_RST" with_date)
     RST7_PART=""; [ -n "$RST7" ] && RST7_PART=" ${DIM}resets${RESET} ${RST7}"
     [ -n "$RATE_LINE" ] && RATE_LINE="${RATE_LINE}  "
     RATE_LINE="${RATE_LINE}${DIM}7d${RESET} ${BAR7}${RESET} ${RC}${P}%${RESET}${RST7_PART}"
