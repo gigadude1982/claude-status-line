@@ -81,9 +81,37 @@ if [ -z "$ACCOUNT_EMAIL" ]; then
 fi
 
 # ── colours ───────────────────────────────────────────────────────────────────
-CYAN='\033[36m'; BLUE='\033[34m'; GREEN='\033[32m'
-YELLOW='\033[33m'; RED='\033[31m'; MAGENTA='\033[35m'
-BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
+# Vibrant 256-colour palette — neon-bright so the line pops in any terminal.
+CYAN='\033[38;5;51m'      # electric cyan
+BLUE='\033[38;5;39m'      # vivid azure
+GREEN='\033[38;5;46m'     # neon green
+YELLOW='\033[38;5;226m'   # bright yellow
+RED='\033[38;5;196m'      # hot red
+MAGENTA='\033[38;5;201m'  # hot pink/magenta
+ORANGE='\033[38;5;208m'   # bright orange
+PURPLE='\033[38;5;141m'   # soft violet
+PINK='\033[38;5;213m'     # bubblegum pink
+BOLD='\033[1m'; RESET='\033[0m'
+
+# "DIM" is the colour of labels / secondary text. We want it WHITE on a dark
+# background but GREY on a light one. A script can't see the terminal background
+# directly, so detect it via $COLORFGBG ("foreground;background", exported by
+# many terminals) when available. Terminals that DON'T export it (e.g. macOS
+# Terminal.app) are assumed dark — the common case — so labels default to white.
+# Force either mode explicitly with CLAUDE_STATUSLINE_BG=light|dark.
+DIM='\033[38;5;255m'   # default: assume dark background → white labels
+case "$CLAUDE_STATUSLINE_BG" in
+  light) DIM='\033[38;5;245m' ;;
+  dark)  DIM='\033[38;5;255m' ;;
+  *)
+    if [ -n "$COLORFGBG" ]; then
+      _bg="${COLORFGBG##*;}"
+      case "$_bg" in
+        7|9|10|11|12|13|14|15) DIM='\033[38;5;245m' ;;  # light background → grey
+      esac
+    fi
+    ;;
+esac
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 make_bar() {
@@ -157,28 +185,28 @@ GIT_DIR=$(git -C "$DIR" rev-parse --git-dir 2>/dev/null)
 if [ -n "$GIT_DIR" ]; then
   BR=$(git -C "$DIR" -c core.useReplacement=false branch --show-current 2>/dev/null)
   [ -n "$WT_BRANCH" ] && BR="$WT_BRANCH"
-  [ -n "$BR" ] && BRANCH=" ${DIM}on${RESET} ${MAGENTA}${BR}${RESET}"
+  [ -n "$BR" ] && BRANCH=" ${DIM}on${RESET} ${BOLD}${MAGENTA}🌿 ${BR}${RESET}"
 fi
 
 AGENT_PART=""
-[ -n "$AGENT" ] && AGENT_PART=" ${YELLOW}[agent:${AGENT}]${RESET}"
+[ -n "$AGENT" ] && AGENT_PART=" ${BOLD}${ORANGE}🛠️  ${AGENT}${RESET}"
 
 VIM_PART=""
-[ -n "$VIM_MODE" ] && VIM_PART=" ${BLUE}[${VIM_MODE}]${RESET}"
+[ -n "$VIM_MODE" ] && VIM_PART=" ${BOLD}${BLUE}[${VIM_MODE}]${RESET}"
 
 VER_PART=""
 [ -n "$VERSION" ] && VER_PART=" ${DIM}v${VERSION}${RESET}"
 
 ACCT_PART=""
 if [ -n "$ACCOUNT_EMAIL" ]; then
-  ACCT_PART=" ${DIM}as${RESET} ${MAGENTA}${ACCOUNT_EMAIL}${RESET}"
+  ACCT_PART=" ${DIM}as${RESET} ${PINK}👤 ${ACCOUNT_EMAIL}${RESET}"
   [ -n "$ACCOUNT_ORG" ] && ACCT_PART="${ACCT_PART} ${DIM}@ ${ACCOUNT_ORG}${RESET}"
 fi
 
 PLAN_PART=""
-[ -n "$PLAN_NAME" ] && PLAN_PART=" ${DIM}[${RESET}${CYAN}${PLAN_NAME}${RESET}${DIM}]${RESET}"
+[ -n "$PLAN_NAME" ] && PLAN_PART=" ${DIM}[${RESET}${BOLD}${PURPLE}✨ ${PLAN_NAME}${RESET}${DIM}]${RESET}"
 
-printf "${BOLD}${CYAN}[${MODEL}]${RESET}${VER_PART}${SESSION_PART}${AGENT_PART}${VIM_PART}${ACCT_PART}${PLAN_PART}  ${DIR##*/}${BRANCH}\n"
+printf "${BOLD}${CYAN}🤖 ${MODEL}${RESET}${VER_PART}${SESSION_PART}${AGENT_PART}${VIM_PART}${ACCT_PART}${PLAN_PART}  ${BOLD}${BLUE}📂 ${DIR##*/}${RESET}${BRANCH}\n"
 
 # ── line 2: context window bar + token counts ─────────────────────────────────
 if [ -n "$USED_PCT" ]; then
@@ -201,10 +229,10 @@ if [ -n "$USED_PCT" ]; then
   fi
 
   CTX_K=$(fmt_k "$CTX_SIZE")
-  printf "%b %b${RESET} ${BAR_COLOR}${PCT}%%${RESET} ${DIM}rem:${RESET}${REM}%%${TOK_DETAIL} ${DIM}ctx:${RESET}${CTX_K}\n" \
-    "${DIM}ctx${RESET}" "$BAR"
+  printf "%b %b${RESET} ${BOLD}${BAR_COLOR}${PCT}%%${RESET} ${DIM}rem:${RESET}${GREEN}${REM}%%${RESET}${TOK_DETAIL} ${DIM}ctx:${RESET}${CYAN}${CTX_K}${RESET}\n" \
+    "${BOLD}${PURPLE}🧠 ctx${RESET}" "$BAR"
 else
-  printf "${DIM}ctx: waiting for first message…${RESET}\n"
+  printf "${PURPLE}🧠 ${DIM}ctx: waiting for first message…${RESET}\n"
 fi
 
 # ── line: session cost / duration / lines changed ─────────────────────────────
@@ -214,8 +242,8 @@ if [ -n "$COST_USD" ]; then
     LINES_PART=" ${DIM}(${RESET}${GREEN}+${LINES_ADD}${RESET}${DIM}/${RESET}${RED}-${LINES_DEL}${RESET}${DIM})${RESET}"
   fi
   DUR_PART=""
-  [ -n "$DUR_MS" ] && DUR_PART=" ${DIM}·${RESET} ${DIM}session:${RESET}$(fmt_dur "$DUR_MS")"
-  printf "${DIM}cost${RESET} ${YELLOW}$(fmt_usd "$COST_USD")${RESET}${LINES_PART}${DUR_PART}\n"
+  [ -n "$DUR_MS" ] && DUR_PART=" ${DIM}·${RESET} ${DIM}⏱️  session:${RESET}${CYAN}$(fmt_dur "$DUR_MS")${RESET}"
+  printf "${BOLD}${GREEN}💰 cost${RESET} ${BOLD}${YELLOW}$(fmt_usd "$COST_USD")${RESET}${LINES_PART}${DUR_PART}\n"
 fi
 
 # ── line 4: rate limits ───────────────────────────────────────────────────────
@@ -235,7 +263,7 @@ if [ -n "$FIVE_HR" ] || [ -n "$SEVEN_DAY" ]; then
     BAR5=$(make_bar "$P" "$RC")
     RST5=$(fmt_reset "$FIVE_RST")
     RST5_PART=""; [ -n "$RST5" ] && RST5_PART=" ${DIM}resets${RESET} ${RST5}"
-    RATE_LINE="${DIM}5h${RESET} ${BAR5}${RESET} ${RC}${P}%${RESET}${RST5_PART}"
+    RATE_LINE="${BOLD}${ORANGE}⚡ 5h${RESET} ${BAR5}${RESET} ${BOLD}${RC}${P}%${RESET}${RST5_PART}"
   fi
 
   if [ -n "$SEVEN_DAY" ] && [ "$SEVEN_DAY" != "null" ]; then
@@ -247,7 +275,7 @@ if [ -n "$FIVE_HR" ] || [ -n "$SEVEN_DAY" ]; then
     RST7=$(fmt_reset "$SEVEN_RST" with_date)
     RST7_PART=""; [ -n "$RST7" ] && RST7_PART=" ${DIM}resets${RESET} ${RST7}"
     [ -n "$RATE_LINE" ] && RATE_LINE="${RATE_LINE}  "
-    RATE_LINE="${RATE_LINE}${DIM}7d${RESET} ${BAR7}${RESET} ${RC}${P}%${RESET}${RST7_PART}"
+    RATE_LINE="${RATE_LINE}${BOLD}${PINK}📅 7d${RESET} ${BAR7}${RESET} ${BOLD}${RC}${P}%${RESET}${RST7_PART}"
   fi
 
   printf "%b%b\n" "$RATE_LINE" "$STALE_PART"
