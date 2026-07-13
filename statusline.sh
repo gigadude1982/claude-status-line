@@ -20,7 +20,8 @@ WT_BRANCH=$(echo "$input" | jq -r '.worktree.branch // empty')
 EFFORT=$(echo "$input"    | jq -r '.effort.level // empty')
 THINKING=$(echo "$input"  | jq -r '.thinking.enabled // empty')
 FAST_MODE=$(echo "$input" | jq -r '.fast_mode // empty')
-OUT_STYLE=$(echo "$input" | jq -r '.output_style.name // empty')
+# Tolerate output_style being either an object ({"name":"…"}) or a bare string.
+OUT_STYLE=$(echo "$input" | jq -r '.output_style.name? // .output_style? // empty')
 PR_NUM=$(echo "$input"    | jq -r '.pr.number // empty')
 PR_STATE=$(echo "$input"  | jq -r '.pr.review_state // empty')
 
