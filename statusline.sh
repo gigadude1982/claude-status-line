@@ -99,6 +99,10 @@ BOLD='\033[1m'; RESET='\033[0m'
 # many terminals) when available. Terminals that DON'T export it (e.g. macOS
 # Terminal.app) are assumed dark — the common case — so labels default to white.
 # Force either mode explicitly with CLAUDE_STATUSLINE_BG=light|dark.
+# Empty bar segments stay a fixed muted grey regardless of background, so the
+# unfilled portion never lights up (a background-adaptive white DIM would make
+# the bars look almost full on dark terminals).
+BAR_EMPTY='\033[38;5;240m'
 DIM='\033[38;5;255m'   # default: assume dark background → white labels
 case "$CLAUDE_STATUSLINE_BG" in
   light) DIM='\033[38;5;245m' ;;
@@ -122,7 +126,7 @@ make_bar() {
   [ "$filled" -gt 20 ] && filled=20
   local empty=$(( 20 - filled ))
   printf -v F "%${filled}s" ""; printf -v E "%${empty}s" ""
-  printf "%b%s%b%s" "$color" "${F// /█}" "$DIM" "${E// /░}"
+  printf "%b%s%b%s" "$color" "${F// /█}" "$BAR_EMPTY" "${E// /░}"
 }
 
 fmt_k() {
@@ -206,7 +210,11 @@ fi
 PLAN_PART=""
 [ -n "$PLAN_NAME" ] && PLAN_PART=" ${DIM}[${RESET}${BOLD}${PURPLE}✨ ${PLAN_NAME}${RESET}${DIM}]${RESET}"
 
-printf "${BOLD}${CYAN}🤖 ${MODEL}${RESET}${VER_PART}${SESSION_PART}${AGENT_PART}${VIM_PART}${ACCT_PART}${PLAN_PART}  ${BOLD}${BLUE}📂 ${DIR##*/}${RESET}${BRANCH}\n"
+# Assemble into a variable and print with a constant %b format so a literal '%'
+# in any dynamic value (model, session, dir, branch, account) isn't treated as
+# a printf format specifier.
+LINE1="${BOLD}${CYAN}🤖 ${MODEL}${RESET}${VER_PART}${SESSION_PART}${AGENT_PART}${VIM_PART}${ACCT_PART}${PLAN_PART}  ${BOLD}${BLUE}📂 ${DIR##*/}${RESET}${BRANCH}"
+printf '%b\n' "$LINE1"
 
 # ── line 2: context window bar + token counts ─────────────────────────────────
 if [ -n "$USED_PCT" ]; then
