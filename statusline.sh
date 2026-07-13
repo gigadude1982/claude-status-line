@@ -17,6 +17,12 @@ VERSION=$(echo "$input"   | jq -r '.version // ""')
 VIM_MODE=$(echo "$input"  | jq -r '.vim.mode // empty')
 AGENT=$(echo "$input"     | jq -r '.agent.name // empty')
 WT_BRANCH=$(echo "$input" | jq -r '.worktree.branch // empty')
+EFFORT=$(echo "$input"    | jq -r '.effort.level // empty')
+THINKING=$(echo "$input"  | jq -r '.thinking.enabled // empty')
+FAST_MODE=$(echo "$input" | jq -r '.fast_mode // empty')
+OUT_STYLE=$(echo "$input" | jq -r '.output_style.name // empty')
+PR_NUM=$(echo "$input"    | jq -r '.pr.number // empty')
+PR_STATE=$(echo "$input"  | jq -r '.pr.review_state // empty')
 
 CTX_SIZE=$(echo "$input"  | jq -r '.context_window.context_window_size // 0')
 USED_PCT=$(echo "$input"  | jq -r '.context_window.used_percentage // empty')
@@ -232,6 +238,47 @@ if [ -n "$GIT_DIR" ]; then
   [ -n "$BR" ] && BRANCH=" ${DIM}on${RESET} ${BOLD}${MAGENTA}🌿 ${BR}${RESET}${GIT_STATE}"
 fi
 
+# Open-PR badge, coloured by review state.
+PR_PART=""
+if [ -n "$PR_NUM" ]; then
+  case "$PR_STATE" in
+    approved)          _pc="$GREEN";  _ps=" ✓" ;;
+    changes_requested) _pc="$RED";    _ps=" ✗" ;;
+    pending)           _pc="$YELLOW"; _ps="" ;;
+    draft)             _pc="$DIM";    _ps=" ✎" ;;
+    *)                 _pc="$CYAN";   _ps="" ;;
+  esac
+  PR_PART=" ${BOLD}${_pc}🔀 #${PR_NUM}${_ps}${RESET}"
+fi
+
+# Reasoning-effort badge — escalates from a calm turtle to a rocket. This tracks
+# the /effort toggle and re-renders when it changes.
+EFFORT_PART=""
+if [ -n "$EFFORT" ]; then
+  case "$EFFORT" in
+    low)    _ec="$BLUE";    _ee="🐢" ;;
+    medium) _ec="$CYAN";    _ee="⚙️" ;;
+    high)   _ec="$YELLOW";  _ee="⚡" ;;
+    xhigh)  _ec="$ORANGE";  _ee="🔥" ;;
+    max)    _ec="$MAGENTA"; _ee="🚀" ;;
+    *)      _ec="$CYAN";    _ee="⚙️" ;;
+  esac
+  EFFORT_PART=" ${BOLD}${_ec}${_ee} ${EFFORT}${RESET}"
+fi
+
+# Extended-thinking indicator.
+THINK_PART=""
+[ "$THINKING" = "true" ] && THINK_PART=" ${PURPLE}💭${RESET}"
+
+# Fast-mode toggle (/fast) — only shown when engaged.
+FAST_PART=""
+[ "$FAST_MODE" = "true" ] && FAST_PART=" ${BOLD}${GREEN}🏎️  fast${RESET}"
+
+# Output style, shown only when it isn't the default.
+STYLE_PART=""
+[ -n "$OUT_STYLE" ] && [ "$OUT_STYLE" != "default" ] \
+  && STYLE_PART=" ${PINK}🎨 ${OUT_STYLE}${RESET}"
+
 AGENT_PART=""
 [ -n "$AGENT" ] && AGENT_PART=" ${BOLD}${ORANGE}🛠️  ${AGENT}${RESET}"
 
@@ -261,7 +308,7 @@ esac
 # Assemble into a variable and print with a constant %b format so a literal '%'
 # in any dynamic value (model, session, dir, branch, account) isn't treated as
 # a printf format specifier.
-LINE1="${BOLD}${MODEL_COLOR}🤖 ${MODEL}${RESET}${VER_PART}${SESSION_PART}${AGENT_PART}${VIM_PART}${ACCT_PART}${PLAN_PART}  ${BOLD}${BLUE}📂 ${DIR##*/}${RESET}${BRANCH}"
+LINE1="${BOLD}${MODEL_COLOR}🤖 ${MODEL}${RESET}${VER_PART}${EFFORT_PART}${THINK_PART}${FAST_PART}${STYLE_PART}${SESSION_PART}${AGENT_PART}${VIM_PART}${ACCT_PART}${PLAN_PART}  ${BOLD}${BLUE}📂 ${DIR##*/}${RESET}${BRANCH}${PR_PART}"
 printf '%b\n' "$LINE1"
 
 # ── line 2: context window bar + token counts ─────────────────────────────────
