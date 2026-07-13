@@ -189,7 +189,47 @@ GIT_DIR=$(git -C "$DIR" rev-parse --git-dir 2>/dev/null)
 if [ -n "$GIT_DIR" ]; then
   BR=$(git -C "$DIR" -c core.useReplacement=false branch --show-current 2>/dev/null)
   [ -n "$WT_BRANCH" ] && BR="$WT_BRANCH"
-  [ -n "$BR" ] && BRANCH=" ${DIM}on${RESET} ${BOLD}${MAGENTA}🌿 ${BR}${RESET}"
+
+  # A single porcelain call yields both upstream divergence and working-tree
+  # state, so we summarise the repo right next to the branch name:
+  #   ⇡n ahead / ⇣n behind upstream · ●n staged · ✎n modified · …n untracked
+  #   ✓ when the tree is clean.
+  GIT_STATE=""
+  _porc=$(git -C "$DIR" status --porcelain=v1 --branch 2>/dev/null)
+  if [ -n "$_porc" ]; then
+    _staged=0 _modified=0 _untracked=0 _ahead=0 _behind=0
+    while IFS= read -r _l; do
+      case "$_l" in
+        '## '*)
+          case "$_l" in *'[ahead '*)  _ahead=${_l##*'[ahead '};  _ahead=${_ahead%%[,\]]*} ;; esac
+          case "$_l" in *'behind '*)   _behind=${_l##*'behind '}; _behind=${_behind%%]*} ;; esac
+          ;;
+        '??'*) _untracked=$(( _untracked + 1 )) ;;
+        ??*)
+          _x=${_l:0:1} _y=${_l:1:1}
+          [ "$_x" != " " ] && _staged=$(( _staged + 1 ))
+          [ "$_y" != " " ] && _modified=$(( _modified + 1 ))
+          ;;
+      esac
+    done <<< "$_porc"
+
+    _div=""
+    [ "$_ahead"  -gt 0 ] 2>/dev/null && _div="${_div} ${CYAN}⇡${_ahead}${RESET}"
+    [ "$_behind" -gt 0 ] 2>/dev/null && _div="${_div} ${YELLOW}⇣${_behind}${RESET}"
+
+    _wt=""
+    [ "$_staged"    -gt 0 ] && _wt="${_wt} ${GREEN}●${_staged}${RESET}"
+    [ "$_modified"  -gt 0 ] && _wt="${_wt} ${ORANGE}✎${_modified}${RESET}"
+    [ "$_untracked" -gt 0 ] && _wt="${_wt} ${DIM}…${_untracked}${RESET}"
+
+    if [ -z "$_wt" ]; then
+      GIT_STATE="${_div} ${GREEN}✓${RESET}"
+    else
+      GIT_STATE="${_div}${_wt}"
+    fi
+  fi
+
+  [ -n "$BR" ] && BRANCH=" ${DIM}on${RESET} ${BOLD}${MAGENTA}🌿 ${BR}${RESET}${GIT_STATE}"
 fi
 
 AGENT_PART=""
@@ -210,10 +250,18 @@ fi
 PLAN_PART=""
 [ -n "$PLAN_NAME" ] && PLAN_PART=" ${DIM}[${RESET}${BOLD}${PURPLE}✨ ${PLAN_NAME}${RESET}${DIM}]${RESET}"
 
+# Give each model family its own accent colour so the robot has a personality.
+MODEL_COLOR="$CYAN"
+case "$MODEL" in
+  *[Oo]pus*)   MODEL_COLOR="$PURPLE" ;;
+  *[Ss]onnet*) MODEL_COLOR="$CYAN" ;;
+  *[Hh]aiku*)  MODEL_COLOR="$GREEN" ;;
+esac
+
 # Assemble into a variable and print with a constant %b format so a literal '%'
 # in any dynamic value (model, session, dir, branch, account) isn't treated as
 # a printf format specifier.
-LINE1="${BOLD}${CYAN}🤖 ${MODEL}${RESET}${VER_PART}${SESSION_PART}${AGENT_PART}${VIM_PART}${ACCT_PART}${PLAN_PART}  ${BOLD}${BLUE}📂 ${DIR##*/}${RESET}${BRANCH}"
+LINE1="${BOLD}${MODEL_COLOR}🤖 ${MODEL}${RESET}${VER_PART}${SESSION_PART}${AGENT_PART}${VIM_PART}${ACCT_PART}${PLAN_PART}  ${BOLD}${BLUE}📂 ${DIR##*/}${RESET}${BRANCH}"
 printf '%b\n' "$LINE1"
 
 # ── line 2: context window bar + token counts ─────────────────────────────────
@@ -227,6 +275,11 @@ if [ -n "$USED_PCT" ]; then
 
   BAR=$(make_bar "$PCT" "$BAR_COLOR")
 
+  # The brain reflects how full the window is: calm → sweating → overheating.
+  CTX_EMOJI="🧠"
+  if   [ "$PCT" -ge 90 ]; then CTX_EMOJI="🥵"
+  elif [ "$PCT" -ge 70 ]; then CTX_EMOJI="😅"; fi
+
   TOK_DETAIL=""
   if [ -n "$IN_TOK" ]; then
     TOK_DETAIL=" ${DIM}in:${RESET}$(fmt_k "$IN_TOK") ${DIM}out:${RESET}$(fmt_k "$OUT_TOK")"
@@ -238,7 +291,7 @@ if [ -n "$USED_PCT" ]; then
 
   CTX_K=$(fmt_k "$CTX_SIZE")
   printf "%b %b${RESET} ${BOLD}${BAR_COLOR}${PCT}%%${RESET} ${DIM}rem:${RESET}${GREEN}${REM}%%${RESET}${TOK_DETAIL} ${DIM}ctx:${RESET}${CYAN}${CTX_K}${RESET}\n" \
-    "${BOLD}${PURPLE}🧠 ctx${RESET}" "$BAR"
+    "${BOLD}${PURPLE}${CTX_EMOJI} ctx${RESET}" "$BAR"
 else
   printf "${PURPLE}🧠 ${DIM}ctx: waiting for first message…${RESET}\n"
 fi
