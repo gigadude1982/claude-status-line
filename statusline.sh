@@ -375,8 +375,9 @@ if [ -n "$USED_PCT" ]; then
     [ -n "$CACHE_W" ] && [ "$CACHE_W" -gt 0 ] 2>/dev/null \
       && TOK_DETAIL="${TOK_DETAIL} ${DIM}cw:${RESET}$(fmt_k "$CACHE_W")"
 
-    # Cache-hit %: fraction of the input context served from prompt cache
-    # (cache read ÷ all input tokens). Higher = more reuse = cheaper & faster.
+    # Cache-hit %: fraction of the input context served from prompt cache,
+    # i.e. cache_read ÷ (input + cache_creation + cache_read).
+    # Higher = more reuse = cheaper & faster.
     _cr=${CACHE_R:-0}; _cw=${CACHE_W:-0}; _it=${IN_TOK:-0}
     case "$_cr" in ''|*[!0-9]*) _cr=0 ;; esac
     case "$_cw" in ''|*[!0-9]*) _cw=0 ;; esac
@@ -470,7 +471,9 @@ if [ -n "$COST_USD" ]; then
     LINES_PART=" ${DIM}(${RESET}${GREEN}+${LINES_ADD}${RESET}${DIM}/${RESET}${RED}-${LINES_DEL}${RESET}${DIM})${RESET}"
     # Code-change velocity: total lines touched per hour over the session.
     if [ -n "$DUR_MS" ] && [ "$DUR_MS" -gt 0 ] 2>/dev/null; then
-      _lph=$(( (LINES_ADD + LINES_DEL) * 3600000 / DUR_MS ))
+      _la=$LINES_ADD; case "$_la" in ''|*[!0-9]*) _la=0 ;; esac
+      _ld=$LINES_DEL; case "$_ld" in ''|*[!0-9]*) _ld=0 ;; esac
+      _lph=$(( (_la + _ld) * 3600000 / DUR_MS ))
       [ "$_lph" -gt 0 ] && LINES_PART="${LINES_PART} ${DIM}✏️  ${_lph}/hr${RESET}"
     fi
   fi
