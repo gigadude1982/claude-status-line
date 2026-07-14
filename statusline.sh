@@ -380,40 +380,67 @@ if [ -n "$USED_PCT" ]; then
   EXCEED_PART=""
   [ "$EXCEEDS_200K" = "true" ] && EXCEED_PART=" ${BOLD}${RED}⚠️ 200k+${RESET}"
 
-  # Context-usage sparkline: keep a small per-session history of the used-% and
-  # render it as a trend. Samples are throttled to at most one every 8s so the
-  # line reflects real elapsed time rather than render frequency, and capped at
-  # the last 20 points. History lives in a per-session temp file.
+  # Context-usage sparkline + runway. We keep a small per-session history of
+  # (timestamp, used-%) pairs so we can both draw the trend and project how long
+  # until the window is full. Samples are throttled to at most one every 8s (so
+  # the line tracks real elapsed time, not render frequency) and capped at the
+  # last 20 points. History lives in a per-session temp file.
   SPARK_PART=""
+  RUNWAY_PART=""
   if [ -n "$SESSION_ID" ]; then
     # Sanitise the session id before putting it in a path — keep only filename-
     # safe characters so a stray '/' or space can't redirect the write.
     _safe_sid="${SESSION_ID//[^A-Za-z0-9._-]/}"
-    SPARK_FILE="${TMPDIR:-/tmp}/.claude_spark_$(id -u 2>/dev/null || echo 0)_${_safe_sid}"
-    _now=$(date +%s); _lastts=0; _vals=""
+    SPARK_FILE="${TMPDIR:-/tmp}/.claude_spark2_$(id -u 2>/dev/null || echo 0)_${_safe_sid}"
+    _now=$(date +%s); _hist=""
     if [ -f "$SPARK_FILE" ]; then
-      read -r _lastts _vals < "$SPARK_FILE"
+      _hist=$(cat "$SPARK_FILE" 2>/dev/null)
     else
       # First sample of a new session — opportunistically sweep spark files from
       # sessions untouched for a day so temp files don't accumulate forever.
-      find "${TMPDIR:-/tmp}" -maxdepth 1 -name '.claude_spark_*' -mtime +1 -delete 2>/dev/null
+      find "${TMPDIR:-/tmp}" -maxdepth 1 -name '.claude_spark*' -mtime +1 -delete 2>/dev/null
     fi
-    case "$_lastts" in ''|*[!0-9]*) _lastts=0 ;; esac  # guard against corrupt line
-    if [ $(( _now - _lastts )) -ge 8 ]; then
-      _vals="$_vals $PCT"
-      # shellcheck disable=SC2086
-      set -- $_vals
-      [ "$#" -gt 20 ] && shift $(( $# - 20 ))
-      _vals="$*"
-      printf '%s %s\n' "$_now" "$_vals" > "$SPARK_FILE" 2>/dev/null
-    fi
+    # Parse the flat "ts val ts val …" list into parallel arrays.
+    _ts=(); _vs=(); _i=0
     # shellcheck disable=SC2086
-    set -- $_vals
-    [ "$#" -ge 2 ] && SPARK_PART=" ${DIM}📈${RESET} $(make_spark "$@")${RESET}"
+    for _tok in $_hist; do
+      if [ $(( _i % 2 )) -eq 0 ]; then _ts+=("$_tok"); else _vs+=("$_tok"); fi
+      _i=$(( _i + 1 ))
+    done
+    # Drop a trailing unpaired token from a truncated write, if any.
+    [ "${#_ts[@]}" -gt "${#_vs[@]}" ] && _ts=("${_ts[@]:0:${#_vs[@]}}")
+    _np=${#_vs[@]}
+    _lastts=0; [ "$_np" -ge 1 ] && _lastts=${_ts[$(( _np - 1 ))]}
+    case "$_lastts" in ''|*[!0-9]*) _lastts=0 ;; esac
+
+    if [ $(( _now - _lastts )) -ge 8 ]; then
+      _ts+=("$_now"); _vs+=("$PCT"); _np=${#_vs[@]}
+      if [ "$_np" -gt 20 ]; then
+        _ts=("${_ts[@]:$(( _np - 20 ))}"); _vs=("${_vs[@]:$(( _np - 20 ))}"); _np=20
+      fi
+      _out=""; for (( _i = 0; _i < _np; _i++ )); do _out="$_out ${_ts[_i]} ${_vs[_i]}"; done
+      printf '%s\n' "${_out# }" > "$SPARK_FILE" 2>/dev/null
+    fi
+
+    [ "$_np" -ge 2 ] && SPARK_PART=" ${DIM}📈${RESET} $(make_spark "${_vs[@]}")${RESET}"
+
+    # Runway: linear projection to 100% from the oldest→newest retained samples.
+    # Only shown when context is genuinely climbing over a meaningful window, so
+    # it stays quiet during noise or when usage is flat/shrinking.
+    if [ "$_np" -ge 3 ]; then
+      _v0=${_vs[0]}; _vn=${_vs[$(( _np - 1 ))]}
+      _t0=${_ts[0]}; _tn=${_ts[$(( _np - 1 ))]}
+      _dv=$(( _vn - _v0 )); _dt=$(( _tn - _t0 ))
+      if [ "$_dv" -ge 2 ] && [ "$_dt" -ge 30 ] && [ "$_vn" -lt 100 ]; then
+        _eta=$(( (100 - _vn) * _dt / _dv ))               # seconds to full
+        [ "$_eta" -gt 0 ] && [ "$_eta" -lt 86400 ] \
+          && RUNWAY_PART=" ${DIM}🛫${RESET} ${YELLOW}$(fmt_dur $(( _eta * 1000 )))${RESET}${DIM} to full${RESET}"
+      fi
+    fi
   fi
 
   CTX_K=$(fmt_k "$CTX_SIZE")
-  printf "%b %b${RESET} ${BOLD}${BAR_COLOR}${PCT}%%${RESET} ${DIM}rem:${RESET}${GREEN}${REM}%%${RESET}${SPARK_PART}${TOK_DETAIL} ${DIM}ctx:${RESET}${CYAN}${CTX_K}${RESET}${EXCEED_PART}\n" \
+  printf "%b %b${RESET} ${BOLD}${BAR_COLOR}${PCT}%%${RESET} ${DIM}rem:${RESET}${GREEN}${REM}%%${RESET}${SPARK_PART}${RUNWAY_PART}${TOK_DETAIL} ${DIM}ctx:${RESET}${CYAN}${CTX_K}${RESET}${EXCEED_PART}\n" \
     "${BOLD}${PURPLE}${CTX_EMOJI} ctx${RESET}" "$BAR"
 else
   printf "${PURPLE}🧠 ${DIM}ctx: waiting for first message…${RESET}\n"
@@ -439,7 +466,20 @@ if [ -n "$COST_USD" ]; then
   if   [ "$_dollars" -ge 10 ]; then COST_EMOJI="💸"
   elif [ "$_dollars" -lt 1 ];  then COST_EMOJI="🪙"; fi
 
-  printf "${BOLD}${GREEN}${COST_EMOJI} cost${RESET} ${BOLD}${YELLOW}$(fmt_usd "$COST_USD")${RESET}${LINES_PART}${DUR_PART}${API_PART}\n"
+  # Cost velocity ($/hr) — spend rate over the whole session, with a burn emoji
+  # that escalates: 🐢 <$1 · 🚶 $1–$4 · 🏃 $5–$14 · 🔥 ≥$15 per hour.
+  VELO_PART=""
+  if [ -n "$DUR_MS" ] && [ "$DUR_MS" -gt 0 ] 2>/dev/null; then
+    _rate=$(awk -v c="$COST_USD" -v d="$DUR_MS" 'BEGIN{ printf "%.2f", c*3600000/d }' 2>/dev/null)
+    _ri=${_rate%.*}; case "$_ri" in ''|*[!0-9]*) _ri=0 ;; esac
+    if   [ "$_ri" -ge 15 ]; then _be="🔥"; _bc="$RED"
+    elif [ "$_ri" -ge 5 ];  then _be="🏃"; _bc="$ORANGE"
+    elif [ "$_ri" -ge 1 ];  then _be="🚶"; _bc="$YELLOW"
+    else                         _be="🐢"; _bc="$GREEN"; fi
+    [ -n "$_rate" ] && VELO_PART=" ${DIM}·${RESET} ${_bc}${_be} \$${_rate}/hr${RESET}"
+  fi
+
+  printf "${BOLD}${GREEN}${COST_EMOJI} cost${RESET} ${BOLD}${YELLOW}$(fmt_usd "$COST_USD")${RESET}${LINES_PART}${DUR_PART}${API_PART}${VELO_PART}\n"
 fi
 
 # ── line 4: rate limits ───────────────────────────────────────────────────────
