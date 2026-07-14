@@ -1,18 +1,55 @@
 # claude-status-line
 
-A Claude Code statusline script that shows model, context window usage, and rate limits in the Claude Code UI header.
+A vibrant, information-dense statusline for [Claude Code](https://claude.ai/code) — model, live toggles, context usage, cost, git status, and rate limits, rendered with a neon 256-color palette and emoji glyphs.
 
 ![statusline example](https://img.shields.io/badge/Claude_Code-statusline-blue)
 
 ## What it shows
 
-**Line 1** — model, version, session, vim/agent mode, account, plan, working directory, git branch
+**Line 1 — identity & live state**
+- 🤖 **model**, tinted by family (Opus = violet, Sonnet = cyan, Haiku = green) + version
+- **effort badge** tracking `/effort`: 🐢 low · ⚙️ medium · ⚡ high · 🔥 xhigh · 🚀 max
+- 💭 **thinking** (when extended thinking is on) · 🏎️ **fast** (when `/fast` is engaged)
+- 🎨 **output style** (when not `default`) · session name · 🛠️ agent · vim mode
+- 👤 **account** & org · ✨ **plan**
+- 📂 **directory**, `(owner/name)` repo identity, 🌿 **branch** + git status, 🔀 **PR**
 
-**Line 2** — context window progress bar with token breakdown (input, output, cache read/write)
+**Line 2 — context window**
+- 🧠 **mood emoji** by fullness: 🧠 (<70%) → 😅 (70–89%) → 🥵 (≥90%)
+- gradient **usage bar** (green → yellow → orange → red as it fills)
+- used % · remaining % · 📈 **usage sparkline** (trend over time)
+- token breakdown: input, output, cache read/write · context size
+- ⚠️ **200k+** badge when the conversation crosses 200k tokens
 
-**Line 3** — session cost, lines changed, and session duration
+**Line 3 — cost & timing**
+- **cost emoji** by tier: 🪙 (<$1) · 💰 ($1–$9) · 💸 (≥$10) + total cost
+- lines changed (+added / −removed)
+- ⏱️ session duration · 🛰️ time spent waiting on the API
 
-**Line 4** — 5-hour and 7-day rate limit bars with reset countdowns
+**Line 4 — rate limits**
+- ⚡ **5-hour** and 📅 **7-day** gradient bars with used % and reset countdowns (with absolute reset time)
+
+### Git status
+
+Next to the branch, from a single `git status` call:
+
+| Marker | Meaning |
+|--------|---------|
+| `⇡n` / `⇣n` | commits ahead / behind upstream |
+| `●n` | staged changes |
+| `✎n` | modified (unstaged) |
+| `…n` | untracked files |
+| `✓` | clean working tree |
+
+The PR badge (`🔀 #123`) is colored by review state: approved ✓ (green), changes requested ✗ (red), pending (yellow), draft ✎ (grey).
+
+### Context-usage sparkline
+
+The 📈 sparkline (`▁▂▃▄▅▆▇█`) tracks the context used-% over time. History is kept per-session in a temp file, sampled at most once every 8 seconds (so it reflects real elapsed time, not render frequency) and capped at the last 20 points. Stale files from old sessions are swept automatically.
+
+### Bar gradient ("fuel gauge")
+
+Bars color each cell by its position along a green → red ramp, so color signals how full something is: a low bar is all green ("plenty of room"), and it warms through yellow and orange to red as it fills.
 
 ### Rate limit caching
 
@@ -23,6 +60,7 @@ Claude Code only includes rate limit data in the statusline JSON when it receive
 - [Claude Code](https://claude.ai/code)
 - `jq` on PATH (comes with Git Bash on Windows; `brew install jq` on Mac)
 - Bash (Git Bash on Windows, native on Mac/Linux)
+- A terminal with emoji and 256-color support (iTerm2, Ghostty, VS Code, Terminal.app, most modern terminals)
 
 ## Installation
 
@@ -56,6 +94,16 @@ Add the `statusLine` block printed by `install.sh` to `~/.claude/settings.json`:
 }
 ```
 
+## Configuration
+
+### Light vs dark backgrounds
+
+Labels/secondary text render **white on dark** backgrounds and **grey on light** ones. The script detects the background from `$COLORFGBG` when the terminal exports it; otherwise it assumes dark (the common case, e.g. macOS Terminal.app). If you use a light-background terminal that doesn't set `COLORFGBG`, force it:
+
+```bash
+export CLAUDE_STATUSLINE_BG=light   # or: dark
+```
+
 ## Updating
 
 ```bash
@@ -73,3 +121,7 @@ The script reads `~/.claude.json` to determine your subscription tier and displa
 | `default_claude_max_20x` | Max 20x |
 | `default_claude_max_1x` | Max 1x |
 | `claude_pro` | Pro (or Max if extra usage enabled) |
+
+## Graceful degradation
+
+Every field is parsed defensively (`// empty`), so badges only appear when their data is present. Older Claude Code versions that don't emit newer fields (effort, thinking, fast mode, PR, repo, etc.) simply render without those badges — nothing breaks.
