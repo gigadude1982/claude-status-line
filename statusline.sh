@@ -137,6 +137,7 @@ make_bar() {
   local pct="${1:-0}"
   local ipct; ipct=$(printf '%.0f' "$pct" 2>/dev/null) || ipct=0
   [ "$ipct" -gt 100 ] && ipct=100
+  [ "$ipct" -lt 0 ]   && ipct=0
   local filled=$(( (ipct * 20 + 50) / 100 ))
   [ "$filled" -gt 20 ] && filled=20
   local out="" i
@@ -369,7 +370,7 @@ if [ -n "$COST_USD" ]; then
   DUR_PART=""
   [ -n "$DUR_MS" ] && DUR_PART=" ${DIM}·${RESET} ${DIM}⏱️  session:${RESET}${CYAN}$(fmt_dur "$DUR_MS")${RESET}"
 
-  # Cost tier: 🪙 pocket change (<$1) · 💰 building up ($1–10) · 💸 pricey (≥$10).
+  # Cost tier: 🪙 pocket change (<$1) · 💰 building up ($1–$9) · 💸 pricey (≥$10).
   COST_EMOJI="💰"
   _dollars=${COST_USD%%.*}; case "$_dollars" in ''|*[!0-9]*) _dollars=0 ;; esac
   if   [ "$_dollars" -ge 10 ]; then COST_EMOJI="💸"
