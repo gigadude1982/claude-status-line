@@ -184,6 +184,8 @@ fmt_dur() {
   local ms="${1:-}"
   [ -z "$ms" ] || [ "$ms" = "null" ] && echo "—" && return
   local secs=$(( ms / 1000 ))
+  # Sub-minute durations (common for API waits) show seconds instead of "0m".
+  [ "$secs" -lt 60 ] && { printf '%ds' "$secs"; return; }
   local h=$(( secs / 3600 )) m=$(( (secs % 3600) / 60 ))
   [ "$h" -gt 0 ] && printf '%dh%dm' "$h" "$m" || printf '%dm' "$m"
 }
@@ -384,7 +386,10 @@ if [ -n "$USED_PCT" ]; then
   # the last 20 points. History lives in a per-session temp file.
   SPARK_PART=""
   if [ -n "$SESSION_ID" ]; then
-    SPARK_FILE="${TMPDIR:-/tmp}/.claude_spark_$(id -u 2>/dev/null || echo 0)_${SESSION_ID}"
+    # Sanitise the session id before putting it in a path — keep only filename-
+    # safe characters so a stray '/' or space can't redirect the write.
+    _safe_sid="${SESSION_ID//[^A-Za-z0-9._-]/}"
+    SPARK_FILE="${TMPDIR:-/tmp}/.claude_spark_$(id -u 2>/dev/null || echo 0)_${_safe_sid}"
     _now=$(date +%s); _lastts=0; _vals=""
     if [ -f "$SPARK_FILE" ]; then
       read -r _lastts _vals < "$SPARK_FILE"
@@ -404,7 +409,7 @@ if [ -n "$USED_PCT" ]; then
     fi
     # shellcheck disable=SC2086
     set -- $_vals
-    [ "$#" -ge 2 ] && SPARK_PART=" ${DIM}📈${RESET} $(make_spark "$@")"
+    [ "$#" -ge 2 ] && SPARK_PART=" ${DIM}📈${RESET} $(make_spark "$@")${RESET}"
   fi
 
   CTX_K=$(fmt_k "$CTX_SIZE")
