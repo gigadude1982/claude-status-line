@@ -12,6 +12,9 @@ CACHE_FILE="${TMPDIR:-/tmp}/.claude_rl_$(id -u 2>/dev/null || echo 0)_$(basename
 # ── parse JSON ────────────────────────────────────────────────────────────────
 MODEL=$(echo "$input"     | jq -r '.model.display_name // "unknown"')
 DIR=$(echo "$input"       | jq -r '.workspace.current_dir // ""')
+SESSION_ID=$(echo "$input"| jq -r '.session_id // empty')
+REPO_OWNER=$(echo "$input"| jq -r '.workspace.repo.owner // empty')
+REPO_NAME=$(echo "$input" | jq -r '.workspace.repo.name // empty')
 SESSION=$(echo "$input"   | jq -r '.session_name // empty')
 VERSION=$(echo "$input"   | jq -r '.version // ""')
 VIM_MODE=$(echo "$input"  | jq -r '.vim.mode // empty')
@@ -36,6 +39,7 @@ CACHE_R=$(echo "$input"   | jq -r '.context_window.current_usage.cache_read_inpu
 
 COST_USD=$(echo "$input"  | jq -r '.cost.total_cost_usd // empty')
 DUR_MS=$(echo "$input"    | jq -r '.cost.total_duration_ms // empty')
+API_MS=$(echo "$input"    | jq -r '.cost.total_api_duration_ms // empty')
 LINES_ADD=$(echo "$input" | jq -r '.cost.total_lines_added // empty')
 LINES_DEL=$(echo "$input" | jq -r '.cost.total_lines_removed // empty')
 
@@ -131,6 +135,21 @@ case "$CLAUDE_STATUSLINE_BG" in
 esac
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+# make_spark PCT... — renders a sparkline from a series of integer percentages,
+# each glyph sized by its value and coloured with the same green→red ramp as the
+# bars, so the context-usage trend reads at a glance.
+SPARK_CHARS=(▁ ▂ ▃ ▄ ▅ ▆ ▇ █)
+make_spark() {
+  local out="" v idx cidx
+  for v in "$@"; do
+    [ "$v" -gt 100 ] 2>/dev/null && v=100; [ "$v" -lt 0 ] 2>/dev/null && v=0
+    idx=$(( v * 7 / 100 ));   [ "$idx" -gt 7 ]   && idx=7
+    cidx=$(( v * 19 / 100 )); [ "$cidx" -gt 19 ] && cidx=19
+    out="${out}\033[38;5;${GRAD[cidx]}m${SPARK_CHARS[idx]}"
+  done
+  printf "%b" "$out"
+}
+
 # make_bar PCT — renders a 20-cell gradient bar. (A second colour arg is still
 # accepted but ignored; the per-cell gradient replaces the old flat colour.)
 make_bar() {
@@ -311,6 +330,11 @@ fi
 PLAN_PART=""
 [ -n "$PLAN_NAME" ] && PLAN_PART=" ${DIM}[${RESET}${BOLD}${PURPLE}✨ ${PLAN_NAME}${RESET}${DIM}]${RESET}"
 
+# Repo identity (owner/name) — handy when the folder name differs from the repo.
+REPO_PART=""
+[ -n "$REPO_OWNER" ] && [ -n "$REPO_NAME" ] \
+  && REPO_PART=" ${DIM}(${RESET}${CYAN}${REPO_OWNER}/${REPO_NAME}${RESET}${DIM})${RESET}"
+
 # Give each model family its own accent colour so the robot has a personality.
 MODEL_COLOR="$CYAN"
 case "$MODEL" in
@@ -322,7 +346,7 @@ esac
 # Assemble into a variable and print with a constant %b format so a literal '%'
 # in any dynamic value (model, session, dir, branch, account) isn't treated as
 # a printf format specifier.
-LINE1="${BOLD}${MODEL_COLOR}🤖 ${MODEL}${RESET}${VER_PART}${EFFORT_PART}${THINK_PART}${FAST_PART}${STYLE_PART}${SESSION_PART}${AGENT_PART}${VIM_PART}${ACCT_PART}${PLAN_PART}  ${BOLD}${BLUE}📂 ${DIR##*/}${RESET}${BRANCH}${PR_PART}"
+LINE1="${BOLD}${MODEL_COLOR}🤖 ${MODEL}${RESET}${VER_PART}${EFFORT_PART}${THINK_PART}${FAST_PART}${STYLE_PART}${SESSION_PART}${AGENT_PART}${VIM_PART}${ACCT_PART}${PLAN_PART}  ${BOLD}${BLUE}📂 ${DIR##*/}${RESET}${REPO_PART}${BRANCH}${PR_PART}"
 printf '%b\n' "$LINE1"
 
 # ── line 2: context window bar + token counts ─────────────────────────────────
@@ -354,8 +378,37 @@ if [ -n "$USED_PCT" ]; then
   EXCEED_PART=""
   [ "$EXCEEDS_200K" = "true" ] && EXCEED_PART=" ${BOLD}${RED}⚠️ 200k+${RESET}"
 
+  # Context-usage sparkline: keep a small per-session history of the used-% and
+  # render it as a trend. Samples are throttled to at most one every 8s so the
+  # line reflects real elapsed time rather than render frequency, and capped at
+  # the last 20 points. History lives in a per-session temp file.
+  SPARK_PART=""
+  if [ -n "$SESSION_ID" ]; then
+    SPARK_FILE="${TMPDIR:-/tmp}/.claude_spark_$(id -u 2>/dev/null || echo 0)_${SESSION_ID}"
+    _now=$(date +%s); _lastts=0; _vals=""
+    if [ -f "$SPARK_FILE" ]; then
+      read -r _lastts _vals < "$SPARK_FILE"
+    else
+      # First sample of a new session — opportunistically sweep spark files from
+      # sessions untouched for a day so temp files don't accumulate forever.
+      find "${TMPDIR:-/tmp}" -maxdepth 1 -name '.claude_spark_*' -mtime +1 -delete 2>/dev/null
+    fi
+    case "$_lastts" in ''|*[!0-9]*) _lastts=0 ;; esac  # guard against corrupt line
+    if [ $(( _now - _lastts )) -ge 8 ]; then
+      _vals="$_vals $PCT"
+      # shellcheck disable=SC2086
+      set -- $_vals
+      [ "$#" -gt 20 ] && shift $(( $# - 20 ))
+      _vals="$*"
+      printf '%s %s\n' "$_now" "$_vals" > "$SPARK_FILE" 2>/dev/null
+    fi
+    # shellcheck disable=SC2086
+    set -- $_vals
+    [ "$#" -ge 2 ] && SPARK_PART=" ${DIM}📈${RESET} $(make_spark "$@")"
+  fi
+
   CTX_K=$(fmt_k "$CTX_SIZE")
-  printf "%b %b${RESET} ${BOLD}${BAR_COLOR}${PCT}%%${RESET} ${DIM}rem:${RESET}${GREEN}${REM}%%${RESET}${TOK_DETAIL} ${DIM}ctx:${RESET}${CYAN}${CTX_K}${RESET}${EXCEED_PART}\n" \
+  printf "%b %b${RESET} ${BOLD}${BAR_COLOR}${PCT}%%${RESET} ${DIM}rem:${RESET}${GREEN}${REM}%%${RESET}${SPARK_PART}${TOK_DETAIL} ${DIM}ctx:${RESET}${CYAN}${CTX_K}${RESET}${EXCEED_PART}\n" \
     "${BOLD}${PURPLE}${CTX_EMOJI} ctx${RESET}" "$BAR"
 else
   printf "${PURPLE}🧠 ${DIM}ctx: waiting for first message…${RESET}\n"
@@ -370,13 +423,18 @@ if [ -n "$COST_USD" ]; then
   DUR_PART=""
   [ -n "$DUR_MS" ] && DUR_PART=" ${DIM}·${RESET} ${DIM}⏱️  session:${RESET}${CYAN}$(fmt_dur "$DUR_MS")${RESET}"
 
+  # How much of the session was spent waiting on the API.
+  API_PART=""
+  [ -n "$API_MS" ] && [ "$API_MS" -gt 0 ] 2>/dev/null \
+    && API_PART=" ${DIM}·${RESET} ${DIM}🛰️  api:${RESET}${CYAN}$(fmt_dur "$API_MS")${RESET}"
+
   # Cost tier: 🪙 pocket change (<$1) · 💰 building up ($1–$9) · 💸 pricey (≥$10).
   COST_EMOJI="💰"
   _dollars=${COST_USD%%.*}; case "$_dollars" in ''|*[!0-9]*) _dollars=0 ;; esac
   if   [ "$_dollars" -ge 10 ]; then COST_EMOJI="💸"
   elif [ "$_dollars" -lt 1 ];  then COST_EMOJI="🪙"; fi
 
-  printf "${BOLD}${GREEN}${COST_EMOJI} cost${RESET} ${BOLD}${YELLOW}$(fmt_usd "$COST_USD")${RESET}${LINES_PART}${DUR_PART}\n"
+  printf "${BOLD}${GREEN}${COST_EMOJI} cost${RESET} ${BOLD}${YELLOW}$(fmt_usd "$COST_USD")${RESET}${LINES_PART}${DUR_PART}${API_PART}\n"
 fi
 
 # ── line 4: rate limits ───────────────────────────────────────────────────────
