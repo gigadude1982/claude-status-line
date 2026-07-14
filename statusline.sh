@@ -26,6 +26,7 @@ PR_NUM=$(echo "$input"    | jq -r '.pr.number // empty')
 PR_STATE=$(echo "$input"  | jq -r '.pr.review_state // empty')
 
 CTX_SIZE=$(echo "$input"  | jq -r '.context_window.context_window_size // 0')
+EXCEEDS_200K=$(echo "$input" | jq -r '.exceeds_200k_tokens // empty')
 USED_PCT=$(echo "$input"  | jq -r '.context_window.used_percentage // empty')
 REM_PCT=$(echo "$input"   | jq -r '.context_window.remaining_percentage // empty')
 IN_TOK=$(echo "$input"    | jq -r '.context_window.current_usage.input_tokens // empty')
@@ -110,6 +111,11 @@ BOLD='\033[1m'; RESET='\033[0m'
 # unfilled portion never lights up (a background-adaptive white DIM would make
 # the bars look almost full on dark terminals).
 BAR_EMPTY='\033[38;5;240m'
+# 20-step green→yellow→orange→red ramp. Each bar cell is coloured by its own
+# position, so a filling bar glides through the spectrum and a full bar is a
+# green-to-red gradient — an at-a-glance "fuel gauge" of how deep into the red
+# the usage is.
+GRAD=(46 46 82 82 118 154 190 226 226 220 214 214 208 208 202 202 196 196 160 124)
 DIM='\033[38;5;255m'   # default: assume dark background → white labels
 case "$CLAUDE_STATUSLINE_BG" in
   light) DIM='\033[38;5;245m' ;;
@@ -125,15 +131,22 @@ case "$CLAUDE_STATUSLINE_BG" in
 esac
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+# make_bar PCT — renders a 20-cell gradient bar. (A second colour arg is still
+# accepted but ignored; the per-cell gradient replaces the old flat colour.)
 make_bar() {
-  local pct="${1:-0}" color="$2"
+  local pct="${1:-0}"
   local ipct; ipct=$(printf '%.0f' "$pct" 2>/dev/null) || ipct=0
   [ "$ipct" -gt 100 ] && ipct=100
+  [ "$ipct" -lt 0 ]   && ipct=0
   local filled=$(( (ipct * 20 + 50) / 100 ))
   [ "$filled" -gt 20 ] && filled=20
+  local out="" i
+  for (( i = 0; i < filled; i++ )); do
+    out="${out}\033[38;5;${GRAD[i]}m█"
+  done
   local empty=$(( 20 - filled ))
-  printf -v F "%${filled}s" ""; printf -v E "%${empty}s" ""
-  printf "%b%s%b%s" "$color" "${F// /█}" "$BAR_EMPTY" "${E// /░}"
+  printf -v E "%${empty}s" ""
+  printf "%b%b%s" "$out" "$BAR_EMPTY" "${E// /░}"
 }
 
 fmt_k() {
@@ -337,8 +350,12 @@ if [ -n "$USED_PCT" ]; then
       && TOK_DETAIL="${TOK_DETAIL} ${DIM}cw:${RESET}$(fmt_k "$CACHE_W")"
   fi
 
+  # Flag when the conversation has crossed the 200k-token threshold.
+  EXCEED_PART=""
+  [ "$EXCEEDS_200K" = "true" ] && EXCEED_PART=" ${BOLD}${RED}⚠️ 200k+${RESET}"
+
   CTX_K=$(fmt_k "$CTX_SIZE")
-  printf "%b %b${RESET} ${BOLD}${BAR_COLOR}${PCT}%%${RESET} ${DIM}rem:${RESET}${GREEN}${REM}%%${RESET}${TOK_DETAIL} ${DIM}ctx:${RESET}${CYAN}${CTX_K}${RESET}\n" \
+  printf "%b %b${RESET} ${BOLD}${BAR_COLOR}${PCT}%%${RESET} ${DIM}rem:${RESET}${GREEN}${REM}%%${RESET}${TOK_DETAIL} ${DIM}ctx:${RESET}${CYAN}${CTX_K}${RESET}${EXCEED_PART}\n" \
     "${BOLD}${PURPLE}${CTX_EMOJI} ctx${RESET}" "$BAR"
 else
   printf "${PURPLE}🧠 ${DIM}ctx: waiting for first message…${RESET}\n"
@@ -352,7 +369,14 @@ if [ -n "$COST_USD" ]; then
   fi
   DUR_PART=""
   [ -n "$DUR_MS" ] && DUR_PART=" ${DIM}·${RESET} ${DIM}⏱️  session:${RESET}${CYAN}$(fmt_dur "$DUR_MS")${RESET}"
-  printf "${BOLD}${GREEN}💰 cost${RESET} ${BOLD}${YELLOW}$(fmt_usd "$COST_USD")${RESET}${LINES_PART}${DUR_PART}\n"
+
+  # Cost tier: 🪙 pocket change (<$1) · 💰 building up ($1–$9) · 💸 pricey (≥$10).
+  COST_EMOJI="💰"
+  _dollars=${COST_USD%%.*}; case "$_dollars" in ''|*[!0-9]*) _dollars=0 ;; esac
+  if   [ "$_dollars" -ge 10 ]; then COST_EMOJI="💸"
+  elif [ "$_dollars" -lt 1 ];  then COST_EMOJI="🪙"; fi
+
+  printf "${BOLD}${GREEN}${COST_EMOJI} cost${RESET} ${BOLD}${YELLOW}$(fmt_usd "$COST_USD")${RESET}${LINES_PART}${DUR_PART}\n"
 fi
 
 # ── line 4: rate limits ───────────────────────────────────────────────────────
