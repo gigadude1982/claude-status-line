@@ -374,6 +374,22 @@ if [ -n "$USED_PCT" ]; then
       && TOK_DETAIL="${TOK_DETAIL} ${DIM}cr:${RESET}$(fmt_k "$CACHE_R")"
     [ -n "$CACHE_W" ] && [ "$CACHE_W" -gt 0 ] 2>/dev/null \
       && TOK_DETAIL="${TOK_DETAIL} ${DIM}cw:${RESET}$(fmt_k "$CACHE_W")"
+
+    # Cache-hit %: fraction of the input context served from prompt cache,
+    # i.e. cache_read ÷ (input + cache_creation + cache_read).
+    # Higher = more reuse = cheaper & faster.
+    _cr=${CACHE_R:-0}; _cw=${CACHE_W:-0}; _it=${IN_TOK:-0}
+    case "$_cr" in ''|*[!0-9]*) _cr=0 ;; esac
+    case "$_cw" in ''|*[!0-9]*) _cw=0 ;; esac
+    case "$_it" in ''|*[!0-9]*) _it=0 ;; esac
+    _tot=$(( _it + _cw + _cr ))
+    if [ "$_cr" -gt 0 ] && [ "$_tot" -gt 0 ]; then
+      _hit=$(( _cr * 100 / _tot ))
+      if   [ "$_hit" -ge 80 ]; then _hc="$GREEN"
+      elif [ "$_hit" -ge 50 ]; then _hc="$YELLOW"
+      else _hc="$ORANGE"; fi
+      TOK_DETAIL="${TOK_DETAIL} ${_hc}💾 ${_hit}%${RESET}"
+    fi
   fi
 
   # Flag when the conversation has crossed the 200k-token threshold.
@@ -440,8 +456,10 @@ if [ -n "$USED_PCT" ]; then
   fi
 
   CTX_K=$(fmt_k "$CTX_SIZE")
-  printf "%b %b${RESET} ${BOLD}${BAR_COLOR}${PCT}%%${RESET} ${DIM}rem:${RESET}${GREEN}${REM}%%${RESET}${SPARK_PART}${RUNWAY_PART}${TOK_DETAIL} ${DIM}ctx:${RESET}${CYAN}${CTX_K}${RESET}${EXCEED_PART}\n" \
-    "${BOLD}${PURPLE}${CTX_EMOJI} ctx${RESET}" "$BAR"
+  # Assemble and print with a constant %b format so a literal '%' in any dynamic
+  # segment (e.g. the cache-hit badge) isn't treated as a printf format spec.
+  LINE2="${BOLD}${PURPLE}${CTX_EMOJI} ctx${RESET} ${BAR}${RESET} ${BOLD}${BAR_COLOR}${PCT}%${RESET} ${DIM}rem:${RESET}${GREEN}${REM}%${RESET}${SPARK_PART}${RUNWAY_PART}${TOK_DETAIL} ${DIM}ctx:${RESET}${CYAN}${CTX_K}${RESET}${EXCEED_PART}"
+  printf '%b\n' "$LINE2"
 else
   printf "${PURPLE}🧠 ${DIM}ctx: waiting for first message…${RESET}\n"
 fi
@@ -451,6 +469,13 @@ if [ -n "$COST_USD" ]; then
   LINES_PART=""
   if [ -n "$LINES_ADD" ] && [ -n "$LINES_DEL" ]; then
     LINES_PART=" ${DIM}(${RESET}${GREEN}+${LINES_ADD}${RESET}${DIM}/${RESET}${RED}-${LINES_DEL}${RESET}${DIM})${RESET}"
+    # Code-change velocity: total lines touched per hour over the session.
+    if [ -n "$DUR_MS" ] && [ "$DUR_MS" -gt 0 ] 2>/dev/null; then
+      _la=$LINES_ADD; case "$_la" in ''|*[!0-9]*) _la=0 ;; esac
+      _ld=$LINES_DEL; case "$_ld" in ''|*[!0-9]*) _ld=0 ;; esac
+      _lph=$(( (_la + _ld) * 3600000 / DUR_MS ))
+      [ "$_lph" -gt 0 ] && LINES_PART="${LINES_PART} ${DIM}✏️  ${_lph}/hr${RESET}"
+    fi
   fi
   DUR_PART=""
   [ -n "$DUR_MS" ] && DUR_PART=" ${DIM}·${RESET} ${DIM}⏱️  session:${RESET}${CYAN}$(fmt_dur "$DUR_MS")${RESET}"
