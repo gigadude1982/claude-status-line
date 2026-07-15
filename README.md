@@ -8,23 +8,24 @@ A vibrant, information-dense statusline for [Claude Code](https://claude.ai/code
 
 **Line 1 — identity & live state**
 - 🤖 **model**, tinted by family (Opus = violet, Sonnet = cyan, Haiku = green) + version
+- ↩ **model-switch breadcrumb** — the model you switched from, once you change mid-session
 - **effort badge** tracking `/effort`: 🐢 low · ⚙️ medium · ⚡ high · 🔥 xhigh · 🚀 max
 - 💭 **thinking** (when extended thinking is on) · 🏎️ **fast** (when `/fast` is engaged)
 - 🎨 **output style** (when not `default`) · session name · 🛠️ agent · vim mode
 - 👤 **account** & org · ✨ **plan**
-- 📂 **directory**, `(owner/name)` repo identity, 🌿 **branch** + git status, 🔀 **PR**
+- 📂 **directory**, `(owner/name)` repo identity, 🌿 **branch** + git status, 🕐 **last-commit age**, 🔀 **PR**
 
 **Line 2 — context window**
 - 🧠 **mood emoji** by fullness: 🧠 (<70%) → 😅 (70–89%) → 🥵 (≥90%)
 - gradient **usage bar** (green → yellow → orange → red as it fills)
-- used % · remaining % · 📈 **usage sparkline** (trend over time)
-- token breakdown: input, output, cache read/write · context size
+- used % · remaining % · 📈 **usage sparkline** (trend over time) · 🛫 **runway** (ETA to full)
+- token breakdown: input, output, cache read/write · 💾 **cache-hit %** · context size
 - ⚠️ **200k+** badge when the conversation crosses 200k tokens
 
 **Line 3 — cost & timing**
 - **cost emoji** by tier: 🪙 (<$1) · 💰 ($1–$9) · 💸 (≥$10) + total cost
-- lines changed (+added / −removed)
-- ⏱️ session duration · 🛰️ time spent waiting on the API
+- lines changed (+added / −removed) · ✏️ **lines/hr** velocity
+- ⏱️ session duration · 🛰️ time spent waiting on the API · 💵 **cost velocity** ($/hr with a 🐢→🔥 burn emoji)
 
 **Line 4 — rate limits**
 - ⚡ **5-hour** and 📅 **7-day** gradient bars with used % and reset countdowns (with absolute reset time)
@@ -40,12 +41,22 @@ Next to the branch, from a single `git status` call:
 | `✎n` | modified (unstaged) |
 | `…n` | untracked files |
 | `✓` | clean working tree |
+| `🕐 <age>` | time since the last commit — turns amber when uncommitted work sits on a commit older than 30 min |
 
 The PR badge (`🔀 #123`) is colored by review state: approved ✓ (green), changes requested ✗ (red), pending (yellow), draft ✎ (grey).
 
-### Context-usage sparkline
+### Context-usage sparkline & runway
 
-The 📈 sparkline (`▁▂▃▄▅▆▇█`) tracks the context used-% over time. History is kept per-session in a temp file, sampled at most once every 8 seconds (so it reflects real elapsed time, not render frequency) and capped at the last 20 points. Stale files from old sessions are swept automatically.
+The 📈 sparkline (`▁▂▃▄▅▆▇█`) tracks the context used-% over time. History is kept per-session in a temp file as `(timestamp, used-%)` pairs, sampled at most once every 8 seconds (so it reflects real elapsed time, not render frequency) and capped at the last 20 points. Stale files from old sessions are swept automatically.
+
+The 🛫 **runway** projects an ETA to a full context window from that history, shown only when context is genuinely climbing over a ≥30s window — so it stays quiet during noise, flat usage, or post-`/compact` drops.
+
+### Derived metrics
+
+- **💾 Cache-hit %** — `cache_read ÷ (input + cache_creation + cache_read)`, colored green (≥80%) / yellow (≥50%) / orange. Higher = more prompt-cache reuse = cheaper & faster.
+- **💵 Cost velocity** — session spend rate ($/hr) with a burn emoji: 🐢 <$1 · 🚶 $1–$4 · 🏃 $5–$14 · 🔥 ≥$15 per hour.
+- **✏️ Code-change velocity** — total lines touched per hour over the session.
+- **↩ Model-switch breadcrumb** — the distinct models used this session are tracked (per-session, recency-ordered); when you change models, line 1 shows where you came from.
 
 ### Bar gradient ("fuel gauge")
 
@@ -102,6 +113,14 @@ Labels/secondary text render **white on dark** backgrounds and **grey on light**
 
 ```bash
 export CLAUDE_STATUSLINE_BG=light   # or: dark
+```
+
+### Compact mode
+
+Set `CLAUDE_STATUSLINE_COMPACT=1` to trim the line down to the essentials — model, plan, directory, branch + git status, the context bar, cost, and rate limits — hiding the many secondary badges (effort/thinking/fast/style/session/account/repo/PR, sparkline/runway/token breakdown, api-wait/velocities). Everything is still computed the same way; the optional segments are just hidden.
+
+```bash
+export CLAUDE_STATUSLINE_COMPACT=1
 ```
 
 ## Updating

@@ -134,6 +134,13 @@ case "$CLAUDE_STATUSLINE_BG" in
     ;;
 esac
 
+# Compact mode (CLAUDE_STATUSLINE_COMPACT=1) trims the line down to the
+# essentials — model, plan, dir, branch + git status, the context bar, cost,
+# and rate limits — hiding the many secondary badges. Everything is still
+# computed the same way; the optional segments are just blanked before render.
+COMPACT="${CLAUDE_STATUSLINE_COMPACT:-}"
+[ "$COMPACT" = "0" ] || [ "$COMPACT" = "false" ] && COMPACT=""
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 # make_spark PCT... — renders a sparkline from a series of integer percentages,
 # each glyph sized by its value and coloured with the same green→red ramp as the
@@ -392,6 +399,12 @@ if [ -n "$SESSION_ID" ] && [ -n "$MODEL" ] && [ "$MODEL" != "unknown" ]; then
   fi
 fi
 
+# In compact mode, drop line 1's secondary badges (keep model, plan, dir, branch).
+if [ -n "$COMPACT" ]; then
+  MODELSW_PART="" VER_PART="" EFFORT_PART="" THINK_PART="" FAST_PART="" STYLE_PART=""
+  SESSION_PART="" AGENT_PART="" VIM_PART="" ACCT_PART="" REPO_PART="" PR_PART=""
+fi
+
 # Assemble into a variable and print with a constant %b format so a literal '%'
 # in any dynamic value (model, session, dir, branch, account) isn't treated as
 # a printf format specifier.
@@ -503,6 +516,9 @@ if [ -n "$USED_PCT" ]; then
   fi
 
   CTX_K=$(fmt_k "$CTX_SIZE")
+  # Compact mode keeps the bar, %, remaining and context size (plus the 200k
+  # warning), dropping the sparkline, runway and token breakdown.
+  [ -n "$COMPACT" ] && { SPARK_PART="" RUNWAY_PART="" TOK_DETAIL=""; }
   # Assemble and print with a constant %b format so a literal '%' in any dynamic
   # segment (e.g. the cache-hit badge) isn't treated as a printf format spec.
   LINE2="${BOLD}${PURPLE}${CTX_EMOJI} ctx${RESET} ${BAR}${RESET} ${BOLD}${BAR_COLOR}${PCT}%${RESET} ${DIM}rem:${RESET}${GREEN}${REM}%${RESET}${SPARK_PART}${RUNWAY_PART}${TOK_DETAIL} ${DIM}ctx:${RESET}${CYAN}${CTX_K}${RESET}${EXCEED_PART}"
@@ -517,7 +533,7 @@ if [ -n "$COST_USD" ]; then
   if [ -n "$LINES_ADD" ] && [ -n "$LINES_DEL" ]; then
     LINES_PART=" ${DIM}(${RESET}${GREEN}+${LINES_ADD}${RESET}${DIM}/${RESET}${RED}-${LINES_DEL}${RESET}${DIM})${RESET}"
     # Code-change velocity: total lines touched per hour over the session.
-    if [ -n "$DUR_MS" ] && [ "$DUR_MS" -gt 0 ] 2>/dev/null; then
+    if [ -z "$COMPACT" ] && [ -n "$DUR_MS" ] && [ "$DUR_MS" -gt 0 ] 2>/dev/null; then
       _la=$LINES_ADD; case "$_la" in ''|*[!0-9]*) _la=0 ;; esac
       _ld=$LINES_DEL; case "$_ld" in ''|*[!0-9]*) _ld=0 ;; esac
       _lph=$(( (_la + _ld) * 3600000 / DUR_MS ))
@@ -550,6 +566,9 @@ if [ -n "$COST_USD" ]; then
     else                         _be="🐢"; _bc="$GREEN"; fi
     [ -n "$_rate" ] && VELO_PART=" ${DIM}·${RESET} ${_bc}${_be} \$${_rate}/hr${RESET}"
   fi
+
+  # Compact keeps cost, lines and session duration; drops api-wait and velocity.
+  [ -n "$COMPACT" ] && { API_PART="" VELO_PART=""; }
 
   printf "${BOLD}${GREEN}${COST_EMOJI} cost${RESET} ${BOLD}${YELLOW}$(fmt_usd "$COST_USD")${RESET}${LINES_PART}${DUR_PART}${API_PART}${VELO_PART}\n"
 fi
