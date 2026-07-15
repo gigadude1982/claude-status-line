@@ -354,7 +354,16 @@ if [ -n "$SESSION_ID" ] && [ -n "$MODEL" ] && [ "$MODEL" != "unknown" ]; then
   MODELS_FILE="${TMPDIR:-/tmp}/.claude_sparkmdl_$(id -u 2>/dev/null || echo 0)_${_msid}"
   _mlist=""; [ -f "$MODELS_FILE" ] && _mlist=$(cat "$MODELS_FILE" 2>/dev/null)
   if [ "$MODEL" != "${_mlist##*|}" ]; then       # model changed (or first sample)
-    _mlist="${_mlist:+$_mlist|}$MODEL"
+    # Rebuild the list de-duped — drop any earlier use of the current model,
+    # keeping recency order — then append the current model as most-recent, so
+    # toggling between a few models keeps a true distinct set (not duplicates).
+    _new=""; _oldIFS=$IFS; IFS='|'
+    for _m in $_mlist; do
+      [ "$_m" = "$MODEL" ] && continue
+      _new="${_new:+$_new|}$_m"
+    done
+    IFS=$_oldIFS
+    _mlist="${_new:+$_new|}$MODEL"
     while [ "$(printf '%s' "$_mlist" | tr -cd '|' | wc -c | tr -d ' ')" -ge 5 ]; do
       _mlist="${_mlist#*|}"                        # keep at most the last 5 models
     done
