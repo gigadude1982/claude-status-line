@@ -268,6 +268,22 @@ if [ -n "$GIT_DIR" ]; then
     else
       GIT_STATE="${_div}${_wt}"
     fi
+
+    # Last-commit age. Dim normally, but nudges amber once uncommitted work has
+    # been sitting on a commit older than 30 minutes.
+    _cts=$(git -C "$DIR" log -1 --format=%ct 2>/dev/null)
+    case "$_cts" in ''|*[!0-9]*) _cts="" ;; esac
+    if [ -n "$_cts" ]; then
+      _cage=$(( $(date +%s) - _cts ))
+      [ "$_cage" -lt 0 ] && _cage=0
+      if   [ "$_cage" -lt 60 ];    then _cstr="${_cage}s"
+      elif [ "$_cage" -lt 3600 ];  then _cstr="$(( _cage / 60 ))m"
+      elif [ "$_cage" -lt 86400 ]; then _cstr="$(( _cage / 3600 ))h"
+      else                              _cstr="$(( _cage / 86400 ))d"; fi
+      _cc="$DIM"
+      [ -n "$_wt" ] && [ "$_cage" -ge 1800 ] && _cc="$ORANGE"
+      GIT_STATE="${GIT_STATE} ${_cc}🕐 ${_cstr}${RESET}"
+    fi
   fi
 
   [ -n "$BR" ] && BRANCH=" ${DIM}on${RESET} ${BOLD}${MAGENTA}🌿 ${BR}${RESET}${GIT_STATE}"
