@@ -530,14 +530,15 @@ fi
 # ── line: session cost / duration / lines changed ─────────────────────────────
 if [ -n "$COST_USD" ]; then
   LINES_PART=""
+  LPH_PART=""
   if [ -n "$LINES_ADD" ] && [ -n "$LINES_DEL" ]; then
     LINES_PART=" ${DIM}(${RESET}${GREEN}+${LINES_ADD}${RESET}${DIM}/${RESET}${RED}-${LINES_DEL}${RESET}${DIM})${RESET}"
     # Code-change velocity: total lines touched per hour over the session.
-    if [ -z "$COMPACT" ] && [ -n "$DUR_MS" ] && [ "$DUR_MS" -gt 0 ] 2>/dev/null; then
+    if [ -n "$DUR_MS" ] && [ "$DUR_MS" -gt 0 ] 2>/dev/null; then
       _la=$LINES_ADD; case "$_la" in ''|*[!0-9]*) _la=0 ;; esac
       _ld=$LINES_DEL; case "$_ld" in ''|*[!0-9]*) _ld=0 ;; esac
       _lph=$(( (_la + _ld) * 3600000 / DUR_MS ))
-      [ "$_lph" -gt 0 ] && LINES_PART="${LINES_PART} ${DIM}✏️  ${_lph}/hr${RESET}"
+      [ "$_lph" -gt 0 ] && LPH_PART=" ${DIM}✏️  ${_lph}/hr${RESET}"
     fi
   fi
   DUR_PART=""
@@ -567,10 +568,11 @@ if [ -n "$COST_USD" ]; then
     [ -n "$_rate" ] && VELO_PART=" ${DIM}·${RESET} ${_bc}${_be} \$${_rate}/hr${RESET}"
   fi
 
-  # Compact keeps cost, lines and session duration; drops api-wait and velocity.
-  [ -n "$COMPACT" ] && { API_PART="" VELO_PART=""; }
+  # Compact keeps cost, lines and session duration; drops the lines/hr, api-wait
+  # and $/hr velocities (computed above, blanked here at render time).
+  [ -n "$COMPACT" ] && { LPH_PART="" API_PART="" VELO_PART=""; }
 
-  printf "${BOLD}${GREEN}${COST_EMOJI} cost${RESET} ${BOLD}${YELLOW}$(fmt_usd "$COST_USD")${RESET}${LINES_PART}${DUR_PART}${API_PART}${VELO_PART}\n"
+  printf "${BOLD}${GREEN}${COST_EMOJI} cost${RESET} ${BOLD}${YELLOW}$(fmt_usd "$COST_USD")${RESET}${LINES_PART}${LPH_PART}${DUR_PART}${API_PART}${VELO_PART}\n"
 fi
 
 # ── line 4: rate limits ───────────────────────────────────────────────────────

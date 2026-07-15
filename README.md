@@ -49,7 +49,7 @@ The PR badge (`🔀 #123`) is colored by review state: approved ✓ (green), cha
 
 The 📈 sparkline (`▁▂▃▄▅▆▇█`) tracks the context used-% over time. History is kept per-session in a temp file as `(timestamp, used-%)` pairs, sampled at most once every 8 seconds (so it reflects real elapsed time, not render frequency) and capped at the last 20 points. Stale files from old sessions are swept automatically.
 
-The 🛫 **runway** projects an ETA to a full context window from that history, shown only when context is genuinely climbing over a ≥30s window — so it stays quiet during noise, flat usage, or post-`/compact` drops.
+The 🛫 **runway** projects an ETA to a full context window from that history, shown only when context is genuinely climbing over a ≥30s window — so it stays quiet during noise, flat usage, or when the context is compacted and usage drops.
 
 ### Derived metrics
 
