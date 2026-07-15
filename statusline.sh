@@ -345,10 +345,32 @@ case "$MODEL" in
   *[Hh]aiku*)  MODEL_COLOR="$GREEN" ;;
 esac
 
+# Model-switch breadcrumb: remember the distinct models used this session (as a
+# '|'-separated list in a per-session temp file) and show where we switched
+# from. Only appears once you've actually changed models mid-session.
+MODELSW_PART=""
+if [ -n "$SESSION_ID" ] && [ -n "$MODEL" ] && [ "$MODEL" != "unknown" ]; then
+  _msid="${SESSION_ID//[^A-Za-z0-9._-]/}"
+  MODELS_FILE="${TMPDIR:-/tmp}/.claude_sparkmdl_$(id -u 2>/dev/null || echo 0)_${_msid}"
+  _mlist=""; [ -f "$MODELS_FILE" ] && _mlist=$(cat "$MODELS_FILE" 2>/dev/null)
+  if [ "$MODEL" != "${_mlist##*|}" ]; then       # model changed (or first sample)
+    _mlist="${_mlist:+$_mlist|}$MODEL"
+    while [ "$(printf '%s' "$_mlist" | tr -cd '|' | wc -c | tr -d ' ')" -ge 5 ]; do
+      _mlist="${_mlist#*|}"                        # keep at most the last 5 models
+    done
+    printf '%s' "$_mlist" > "$MODELS_FILE" 2>/dev/null
+  fi
+  _prevlist="${_mlist%|*}"                         # everything before the current
+  if [ "$_prevlist" != "$_mlist" ]; then          # there is a prior model
+    _prev="${_prevlist##*|}"; _prev="${_prev%% (*}"   # drop " (1M context)" suffix
+    MODELSW_PART=" ${DIM}↩ ${_prev}${RESET}"
+  fi
+fi
+
 # Assemble into a variable and print with a constant %b format so a literal '%'
 # in any dynamic value (model, session, dir, branch, account) isn't treated as
 # a printf format specifier.
-LINE1="${BOLD}${MODEL_COLOR}🤖 ${MODEL}${RESET}${VER_PART}${EFFORT_PART}${THINK_PART}${FAST_PART}${STYLE_PART}${SESSION_PART}${AGENT_PART}${VIM_PART}${ACCT_PART}${PLAN_PART}  ${BOLD}${BLUE}📂 ${DIR##*/}${RESET}${REPO_PART}${BRANCH}${PR_PART}"
+LINE1="${BOLD}${MODEL_COLOR}🤖 ${MODEL}${RESET}${MODELSW_PART}${VER_PART}${EFFORT_PART}${THINK_PART}${FAST_PART}${STYLE_PART}${SESSION_PART}${AGENT_PART}${VIM_PART}${ACCT_PART}${PLAN_PART}  ${BOLD}${BLUE}📂 ${DIR##*/}${RESET}${REPO_PART}${BRANCH}${PR_PART}"
 printf '%b\n' "$LINE1"
 
 # ── line 2: context window bar + token counts ─────────────────────────────────
